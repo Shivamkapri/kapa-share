@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import config from "../config";
 
 export default function FileList() {
   const [files, setFiles] = useState([]);
@@ -8,7 +9,7 @@ export default function FileList() {
 
   const fetchFiles = async () => {
     try {
-      const response = await fetch("http://localhost:5000/api/files/");
+      const response = await fetch(`${config.API_BASE_URL}/api/files/`);
       if (response.ok) {
         const result = await response.json();
         setFiles(result.data || []);
@@ -22,7 +23,7 @@ export default function FileList() {
 
   const downloadFile = async (filename) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/files/download/${encodeURIComponent(filename)}`);
+      const response = await fetch(`${config.API_BASE_URL}/api/files/download/${encodeURIComponent(filename)}`);
       if (response.ok) {
         const result = await response.json();
         window.open(result.url, '_blank');
@@ -43,7 +44,7 @@ export default function FileList() {
     if (!window.confirm(`Are you sure you want to delete ${filename}?`)) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/files/${encodeURIComponent(filename)}`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/files/${encodeURIComponent(filename)}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminPassword })
