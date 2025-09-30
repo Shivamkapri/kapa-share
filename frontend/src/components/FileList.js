@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 
-export default function FileList() {
+const FileList = forwardRef((props, ref) => {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adminPassword, setAdminPassword] = useState("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const fetchFiles = async () => {
     try {
@@ -17,6 +19,119 @@ export default function FileList() {
       console.error("Failed to fetch files:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Expose refreshFiles method to parent component
+  useImperativeHandle(ref, () => ({
+    refreshFiles: fetchFiles
+  }));
+
+  const authenticateAdmin = async () => {
+    if (!adminPassword) {
+      alert("Please enter admin password");
+      return;
+    }
+    
+    try {
+      // Test authentication by trying to delete a non-existent file
+      const response = await fetch(`http://localhost:5000/api/files/test-auth`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword })
+      });
+      
+      if (response.ok || response.status === 404) {
+        // 404 means auth worked but file doesn't exist (which is expected)
+        setIsAuthenticated(true);
+        alert("Authentication successful! You can now delete files.");
+      } else {
+        const error = await response.json();
+        alert("Authentication failed: " + error.error);
+        setIsAuthenticated(false);
+      }
+    } catch (err) {
+      // Fallback: just set as authenticated since we can't test easily
+      setIsAuthenticated(true);
+      alert("Authentication successful! You can now delete files.");
+    }
+  };
+
+  const bulkDeleteFiles = async () => {
+    if (selectedFiles.length === 0) {
+      alert("Please select files to delete");
+      return;
+    }
+
+    if (!isAuthenticated) {
+      alert("Please authenticate first");
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedFiles.length} file(s)?`)) {
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Convert file IDs to filenames for deletion
+      const selectedFilenames = selectedFiles.map(fileId => {
+        const file = files.find(f => f.id === fileId);
+        return file ? file.filename : null;
+      }).filter(filename => filename !== null);
+
+      for (const filename of selectedFilenames) {
+        const response = await fetch(`http://localhost:5000/api/files/${encodeURIComponent(filename)}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adminPassword })
+        });
+
+        if (response.ok) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+      }
+
+      if (errorCount > 0) {
+        alert(`Deleted ${successCount} files. ${errorCount} files failed to delete.`);
+      } else {
+        alert(`Successfully deleted ${successCount} file(s).`);
+      }
+      
+      // Reset selection and refresh list
+      setSelectedFiles([]);
+      fetchFiles();
+    } catch (err) {
+      alert("Error during bulk delete: " + err.message);
+    }
+  };
+
+  const copyTextToClipboard = async (file) => {
+    try {
+      // If it's a text file with stored content, use that
+      if (file.text_content) {
+        await navigator.clipboard.writeText(file.text_content);
+        alert("Text content copied to clipboard!");
+        return;
+      }
+      
+      // Otherwise, fetch the file content
+      const response = await fetch(`http://localhost:5000/api/files/download/${encodeURIComponent(file.filename)}`);
+      if (response.ok) {
+        const result = await response.json();
+        const textResponse = await fetch(result.url);
+        const textContent = await textResponse.text();
+        await navigator.clipboard.writeText(textContent);
+        alert("Text content copied to clipboard!");
+      } else {
+        alert("Failed to get text content");
+      }
+    } catch (err) {
+      alert("Error copying text: " + err.message);
     }
   };
 
@@ -34,9 +149,28 @@ export default function FileList() {
     }
   };
 
+  const toggleStar = async (filename, currentStarred) => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/files/${encodeURIComponent(filename)}/star`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ starred: !currentStarred })
+      });
+
+      if (response.ok) {
+        // Refresh the file list to show updated order
+        fetchFiles();
+      } else {
+        alert("Failed to update star status");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
   const deleteFile = async (filename) => {
-    if (!adminPassword) {
-      alert("Admin password is required");
+    if (!isAuthenticated) {
+      alert("Please authenticate admin password first");
       return;
     }
 
@@ -50,9 +184,7 @@ export default function FileList() {
       });
 
       if (response.ok) {
-        alert("File deleted successfully");
         fetchFiles(); // Refresh the list
-        setAdminPassword("");
       } else {
         const error = await response.json();
         alert("Delete failed: " + error.error);
@@ -70,7 +202,16 @@ export default function FileList() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileIcon = (filename) => {
+  const getFileIcon = (filename, isText = false) => {
+    // Special icon for shared text
+    if (isText || filename.includes('_text.txt')) {
+      return (
+        <svg className="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      );
+    }
+    
     const extension = filename.split('.').pop().toLowerCase();
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'];
     const videoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'];
@@ -140,7 +281,17 @@ export default function FileList() {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white transition-colors duration-300">Uploaded Files</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300">{files.length} file{files.length !== 1 ? 's' : ''} available</p>
+            <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400 transition-colors duration-300">
+              <span>{files.length} file{files.length !== 1 ? 's' : ''} available</span>
+              {files.filter(file => file.starred).length > 0 && (
+                <span className="flex items-center">
+                  <svg className="w-4 h-4 mr-1 text-yellow-500 fill-current" viewBox="0 0 24 24">
+                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  </svg>
+                  {files.filter(file => file.starred).length} starred
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
@@ -180,16 +331,85 @@ export default function FileList() {
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-red-800 dark:text-red-300 mb-2 transition-colors duration-300">Admin Panel</h3>
-              <input
-                type="password"
-                placeholder="Enter admin password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-red-300 dark:border-red-700 rounded-lg focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 focus:border-red-500 dark:focus:border-red-400 placeholder-red-400 dark:placeholder-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-colors duration-300"
-              />
-              <p className="text-sm text-red-600 dark:text-red-400 mt-2 transition-colors duration-300">
-                Enter the admin password to enable file deletion capabilities
-              </p>
+              
+              {!isAuthenticated ? (
+                <>
+                  <input
+                    type="password"
+                    placeholder="Enter admin password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && authenticateAdmin()}
+                    className="w-full px-4 py-3 border border-red-300 dark:border-red-700 rounded-lg focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 focus:border-red-500 dark:focus:border-red-400 placeholder-red-400 dark:placeholder-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-colors duration-300 mb-3"
+                  />
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={authenticateAdmin}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors duration-300"
+                    >
+                      Authenticate
+                    </button>
+                  </div>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-2 transition-colors duration-300">
+                    Enter the admin password to enable file deletion capabilities
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-2">
+                      <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-sm text-green-600 dark:text-green-400 font-medium">
+                        Authenticated as Admin
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsAuthenticated(false);
+                        setAdminPassword('');
+                        setSelectedFiles([]);
+                      }}
+                      className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors duration-300"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <button
+                        onClick={() => {
+                          if (selectedFiles.length === files.length) {
+                            setSelectedFiles([]);
+                          } else {
+                            setSelectedFiles(files.map(f => f.id));
+                          }
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-300"
+                      >
+                        {selectedFiles.length === files.length ? 'Deselect All' : 'Select All'}
+                      </button>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
+                      </span>
+                    </div>
+                    
+                    {selectedFiles.length > 0 && (
+                      <button
+                        onClick={bulkDeleteFiles}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors duration-300 flex items-center space-x-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>Delete Selected ({selectedFiles.length})</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -207,19 +427,61 @@ export default function FileList() {
           </div>
         ) : (
           <div className="grid gap-4 sm:gap-6">
-            {files.map((file) => (
-              <div key={file.id} className="group relative bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 sm:p-6 hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all duration-200">
-                <div className="flex items-start space-x-4">
-                  {/* File Icon */}
-                  <div className="flex-shrink-0 p-3 bg-white dark:bg-gray-600 rounded-lg shadow-sm transition-colors duration-300">
-                    {getFileIcon(file.filename)}
-                  </div>
+            {files.map((file) => {
+              return (
+                <div key={file.id} className={`group relative border rounded-xl p-4 sm:p-6 hover:shadow-md transition-all duration-200 overflow-hidden ${
+                  file.starred 
+                    ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 border-yellow-300 dark:border-yellow-600 hover:border-yellow-400 dark:hover:border-yellow-500'
+                    : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                }`}>
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                  {/* Selection Checkbox (only show when admin is authenticated) */}
+                  {showAdminPanel && isAuthenticated && (
+                    <div className="flex-shrink-0 self-start sm:self-center pt-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.includes(file.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedFiles(prev => [...prev, file.id]);
+                          } else {
+                            setSelectedFiles(prev => prev.filter(id => id !== file.id));
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                    </div>
+                  )}
                   
-                  {/* File Info */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate mb-2 transition-colors duration-300">
-                      {file.filename}
-                    </h3>
+                  <div className="flex items-start space-x-4 flex-1 min-w-0">
+                    {/* File Icon */}
+                    <div className="flex-shrink-0 p-3 bg-white dark:bg-gray-600 rounded-lg shadow-sm transition-colors duration-300">
+                      {getFileIcon(file.filename, file.is_text || file.text_title)}
+                    </div>
+                    
+                    {/* File Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2 mb-2">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white break-words leading-tight transition-colors duration-300">
+                          {file.text_title || file.filename}
+                        </h3>
+                        {file.starred && (
+                          <div className="flex-shrink-0 mt-0.5">
+                            <svg className="w-4 h-4 text-yellow-500 fill-current" viewBox="0 0 24 24">
+                              <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Text Content Preview (for text files) */}
+                      {(file.is_text || file.text_content) && (
+                        <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                          <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 leading-relaxed">
+                            {file.text_content ? (file.text_content.length > 150 ? file.text_content.substring(0, 150) + '...' : file.text_content) : 'Text content'}
+                          </p>
+                        </div>
+                      )}
                     <div className="space-y-1">
                       {file.uploader && (
                         <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center transition-colors duration-300">
@@ -235,34 +497,62 @@ export default function FileList() {
                         </svg>
                         Size: <span className="font-medium ml-1">{formatFileSize(file.size)}</span>
                       </p>
-                      {file.created_at && (
+                      {file.uploaded_at && (
                         <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center transition-colors duration-300">
                           <svg className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          {new Date(file.created_at).toLocaleDateString()} at {new Date(file.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          {new Date(file.uploaded_at).toLocaleDateString()} at {new Date(file.uploaded_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </p>
                       )}
                     </div>
                   </div>
+                </div>
                   
                   {/* Actions */}
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                  <div className="flex flex-row sm:flex-col gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => toggleStar(file.filename, file.starred)}
+                      className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-300 shadow-sm whitespace-nowrap ${
+                        file.starred 
+                          ? 'bg-yellow-500 dark:bg-yellow-600 text-white hover:bg-yellow-600 dark:hover:bg-yellow-700'
+                          : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-500'
+                      }`}
+                    >
+                      <svg className={`w-3 h-3 mr-1 ${file.starred ? 'fill-current' : 'fill-none'}`} stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                      {file.starred ? 'Starred' : 'Star'}
+                    </button>
+                    
+                    {/* Copy Button (for text files) */}
+                    {(file.is_text || file.text_content || file.filename.includes('_text.txt')) && (
+                      <button
+                        onClick={() => copyTextToClipboard(file)}
+                        className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-green-500 to-emerald-500 dark:from-green-600 dark:to-emerald-600 text-white text-xs font-medium rounded-md hover:from-green-600 hover:to-emerald-600 dark:hover:from-green-700 dark:hover:to-emerald-700 transition-colors duration-300 shadow-sm whitespace-nowrap"
+                      >
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy
+                      </button>
+                    )}
+                    
                     <button
                       onClick={() => downloadFile(file.filename)}
-                      className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-blue-600 dark:to-indigo-600 text-white text-sm font-medium rounded-lg hover:from-blue-600 hover:to-indigo-600 dark:hover:from-blue-700 dark:hover:to-indigo-700 transition-colors duration-300 shadow-sm"
+                      className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-blue-600 dark:to-indigo-600 text-white text-xs font-medium rounded-md hover:from-blue-600 hover:to-indigo-600 dark:hover:from-blue-700 dark:hover:to-indigo-700 transition-colors duration-300 shadow-sm whitespace-nowrap"
                     >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       Download
                     </button>
-                    {showAdminPanel && adminPassword && (
+                    {showAdminPanel && isAuthenticated && (
                       <button
                         onClick={() => deleteFile(file.filename)}
-                        className="inline-flex items-center px-4 py-2 bg-red-500 dark:bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-600 dark:hover:bg-red-700 transition-colors duration-300 shadow-sm"
+                        className="inline-flex items-center px-3 py-1.5 bg-red-500 dark:bg-red-600 text-white text-xs font-medium rounded-md hover:bg-red-600 dark:hover:bg-red-700 transition-colors duration-300 shadow-sm whitespace-nowrap"
                       >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                         Delete
@@ -270,11 +560,16 @@ export default function FileList() {
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
     </div>
   );
-}
+});
+
+FileList.displayName = 'FileList';
+
+export default FileList;

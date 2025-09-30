@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import Upload from './components/Upload';
 import FileList from './components/FileList';
 import ThemeToggle from './components/ThemeToggle';
@@ -5,6 +6,13 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import './index.css';
 
 function AppContent() {
+  const fileListRef = useRef(null);
+
+  const refreshFileList = () => {
+    if (fileListRef.current) {
+      fileListRef.current.refreshFiles();
+    }
+  };
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300">
       {/* Header */}
@@ -13,7 +21,7 @@ function AppContent() {
           <div className="flex justify-between items-center">
             <div className="text-center flex-1">
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 mb-2">
-                SecureShare
+                kapaShare
               </h1>
               <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 max-w-2xl mx-auto transition-colors duration-300">
                 Fast, secure, and easy file sharing platform. Upload, share, and manage your files with confidence.
@@ -31,7 +39,7 @@ function AppContent() {
         <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 mb-8 lg:mb-12">
           {/* Upload Section */}
           <div className="lg:col-span-2">
-            <Upload />
+            <Upload onUploadSuccess={refreshFileList} />
           </div>
           
           {/* How to Use Section */}
@@ -72,7 +80,7 @@ function AppContent() {
           </div>
         </div>
 
-        <FileList />
+        <FileList ref={fileListRef} />
       </div>
     </div>
   );
