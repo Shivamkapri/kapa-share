@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { API_BASE_URL } from '../config';
 
 export default function Upload({ onUploadSuccess }) {
   const [files, setFiles] = useState([]);
@@ -20,7 +21,7 @@ export default function Upload({ onUploadSuccess }) {
     setUploading(true);
     
     try {
-      const response = await fetch("https://kapa-share-backend.onrender.com/api/files/api/files/share-text", {
+      const response = await fetch(`${API_BASE_URL}/files/share-text`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -67,7 +68,7 @@ export default function Upload({ onUploadSuccess }) {
         formData.append("file", file);
         if (uploader.trim()) formData.append("uploader", uploader.trim());
 
-        const response = await fetch("https://kapa-share-backend.onrender.com/api/files/api/files/upload", {
+        const response = await fetch(`${API_BASE_URL}/files/upload`, {
           method: "POST",
           body: formData
         });

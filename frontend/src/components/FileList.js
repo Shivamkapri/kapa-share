@@ -1,4 +1,5 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { API_BASE_URL } from '../config';
 
 const FileList = forwardRef((props, ref) => {
   const [files, setFiles] = useState([]);
@@ -10,7 +11,7 @@ const FileList = forwardRef((props, ref) => {
 
   const fetchFiles = async () => {
     try {
-      const response = await fetch("https://kapa-share-backend.onrender.com/api/files/");
+      const response = await fetch(`${API_BASE_URL}/files/`);
       if (response.ok) {
         const result = await response.json();
         setFiles(result.data || []);
@@ -35,7 +36,7 @@ const FileList = forwardRef((props, ref) => {
     
     try {
       // Test authentication by trying to delete a non-existent file
-      const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/test-auth`, {
+      const response = await fetch(`${API_BASE_URL}/files/test-auth`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminPassword })
@@ -83,7 +84,7 @@ const FileList = forwardRef((props, ref) => {
       }).filter(filename => filename !== null);
 
       for (const filename of selectedFilenames) {
-        const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/${encodeURIComponent(filename)}`, {
+        const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(filename)}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ adminPassword })
@@ -120,7 +121,7 @@ const FileList = forwardRef((props, ref) => {
       }
       
       // Otherwise, fetch the file content
-      const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/download/${encodeURIComponent(file.filename)}`);
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(file.filename)}`);
       if (response.ok) {
         const result = await response.json();
         const textResponse = await fetch(result.url);
@@ -137,7 +138,7 @@ const FileList = forwardRef((props, ref) => {
 
   const downloadFile = async (filename) => {
     try {
-      const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/download/${encodeURIComponent(filename)}`);
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(filename)}`);
       if (response.ok) {
         const result = await response.json();
         window.open(result.url, '_blank');
@@ -151,7 +152,7 @@ const FileList = forwardRef((props, ref) => {
 
   const toggleStar = async (filename, currentStarred) => {
     try {
-      const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/${encodeURIComponent(filename)}/star`, {
+      const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(filename)}/star`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ starred: !currentStarred })
@@ -177,7 +178,7 @@ const FileList = forwardRef((props, ref) => {
     if (!window.confirm(`Are you sure you want to delete ${filename}?`)) return;
 
     try {
-      const response = await fetch(`https://kapa-share-backend.onrender.com/api/files/api/files/${encodeURIComponent(filename)}`, {
+      const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(filename)}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminPassword })
